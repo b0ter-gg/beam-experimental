@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *; media-src 'self' blob: mediastream:">
+<title>Beam</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#262b36; --text:#e8eaf0; --mute:#8b93a7; --accent:#5b8cff; --ok:#3ecf8e; --bad:#ff5b6b; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:32px 16px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  .sub { color:var(--mute); margin-bottom:28px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:640px){ .grid{grid-template-columns:1fr;} }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
+  .card h2 { margin:0 0 6px; font-size:17px; }
+  .card p { margin:0 0 16px; color:var(--mute); font-size:14px; }
+  button { font:inherit; cursor:pointer; border:0; border-radius:10px; padding:11px 16px; background:var(--accent); color:#fff; font-weight:600; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+  button.danger { background:var(--bad); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  input[type=text], select { font:inherit; background:#0f1115; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
+  input.code { width:100%; text-align:center; letter-spacing:6px; font-size:20px; text-transform:uppercase; margin-bottom:10px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .codebox { font-size:38px; font-weight:700; letter-spacing:8px; text-align:center; margin:8px 0 12px; }
+  .status { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--mute); margin-top:12px; }
+  .dot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--mute); }
+  .dot.ok { background:var(--ok); } .dot.bad { background:var(--bad); }
+  .hidden { display:none !important; }
+  #viewer { position:fixed; inset:0; background:#000; display:flex; flex-direction:column; z-index:10; }
+  #viewer video { flex:1; width:100%; min-height:0; object-fit:contain; background:#000; }
+  .bar { display:flex; gap:8px; align-items:center; justify-content:space-between; padding:10px 14px; background:#0b0d11; border-top:1px solid var(--line); }
+  #picker { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:20; display:flex; align-items:center; justify-content:center; padding:16px; }
+  #pickerBox { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; max-width:760px; width:100%; max-height:90vh; overflow:auto; }
+  #sources { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin:14px 0; }
+  .src { border:2px solid var(--line); border-radius:10px; padding:8px; cursor:pointer; background:#0f1115; }
+  .src:hover { border-color:var(--accent); }
+  .src img { width:100%; border-radius:6px; display:block; }
+  .src div { font-size:12px; margin-top:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--mute); }
+  .note { margin-top:24px; font-size:13px; color:var(--mute); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Beam</h1>
+  <div class="sub">Share your screen with a friend. No account, no setup.</div>
+  <div class="grid">
+    <div class="card">
+      <h2>Share my screen</h2>
+      <p>Pick a screen or window, then send the code to your friend.</p>
+      <div id="shareIdle">
+        <div class="row" style="margin-bottom:12px">
+          <select id="mode">
+            <option value="motion">Smooth (games/video)</option>
+            <option value="detail">Sharp (text/docs)</option>
+          </select>
+          <label class="row" style="color:var(--mute);font-size:14px"><input type="checkbox" id="audio" checked> Share audio</label>
+        </div>
+        <button id="startBtn">Start sharing</button>
+      </div>
+      <div id="shareLive" class="hidden">
+        <div class="codebox" id="codeOut">------</div>
+        <div class="row" style="justify-content:center">
+          <button class="ghost" id="copyCode">Copy code</button>
+          <button class="danger" id="stopBtn">Stop</button>
+        </div>
+      </div>
+      <div class="status"><span class="dot" id="hostDot"></span><span id="hostStatus">Ready</span></div>
+    </div>
+    <div class="card">
+      <h2>Watch a screen</h2>
+      <p>Enter the code your friend gave you.</p>
+      <input type="text" class="code" id="joinCode" maxlength="6" placeholder="ABC123" autocomplete="off">
+      <button id="joinBtn" style="width:100%">Join</button>
+      <div class="status"><span class="dot" id="joinDot"></span><span id="joinStatus">Not connected</span></div>
+    </div>
+  </div>
+  <div class="note">Connections are peer-to-peer and encrypted.</div>
+</div>
+
+<div id="picker" class="hidden">
+  <div id="pickerBox">
+    <h2 style="margin:0">Choose what to share</h2>
+    <div id="sources"></div>
+    <button class="ghost" id="pickCancel">Cancel</button>
+  </div>
+</div>
+
+<div id="viewer" class="hidden">
+  <video id="remote" autoplay playsinline></video>
+  <div class="bar">
+    <span id="viewStatus" style="color:var(--mute);font-size:13px">Connecting…</span>
+    <div class="row">
+      <button class="ghost" id="unmuteBtn">Unmute</button>
+      <button class="ghost" id="fsBtn">Fullscreen</button>
+      <button class="danger" id="leaveBtn">Leave</button>
+    </div>
+  </div>
+</div>
+
+<script src="peerjs.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const PREFIX = 'beam-';
+  const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const genCode = () => Array.from({length:6}, () => ALPHABET[Math.floor(Math.random()*ALPHABET.length)]).join('');
+  const ICE = { config: { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]}};
+  let hostPeer = null, hostStream = null, hostCode = '', calls = new Set();
+  let viewPeer = null, viewConn = null, viewCall = null;
+
+  const setDot = (el, cls) => { el.className = 'dot ' + (cls||''); };
+  const hostMsg = (t, cls) => { $('hostStatus').textContent = t; setDot($('hostDot'), cls); };
+  const joinMsg = (t, cls) => { $('joinStatus').textContent = t; setDot($('joinDot'), cls); };
+
+  /* ----- source picker ----- */
+  function pickSource() {
+    return new Promise(async (resolve) => {
+      let sources = [];
+      try { sources = await window.beam.getSources(); }
+      catch (e) { hostMsg('Could not list screens: ' + e.message, 'bad'); return resolve(null); }
+      const box = $('sources'); box.innerHTML = '';
+      sources.forEach(s => {
+        const d = document.createElement('div'); d.className = 'src';
+        const img = document.createElement('img'); img.src = s.thumb;
+        const n = document.createElement('div'); n.textContent = s.name;
+        d.append(img, n);
+        d.onclick = () => { $('picker').classList.add('hidden'); resolve(s.id); };
+        box.appendChild(d);
+      });
+      $('pickCancel').onclick = () => { $('picker').classList.add('hidden'); resolve(null); };
+      $('picker').classList.remove('hidden');
+    });
+  }
+
+  /* ----- host ----- */
+  async function startSharing() {
+    hostMsg('Choosing screen…', '');
+    const id = await pickSource();
+    if (!id) { hostMsg('Ready', ''); return; }
+    try {
+      await window.beam.selectSource(id);
+      hostStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 60 } },
+        audio: $('audio').checked
+      });
+    } catch (e) {
+      hostMsg('Could not capture screen: ' + (e.message || e.name), 'bad');
+      return;
+    }
+    const vt = hostStream.getVideoTracks()[0];
+    if (vt) { try { vt.contentHint = $('mode').value; } catch(_){} vt.onended = stopSharing; }
+    $('shareIdle').classList.add('hidden');
+    $('shareLive').classList.remove('hidden');
+    openHostPeer();
+  }
+
+  function openHostPeer(attempt = 0) {
+    hostCode = genCode();
+    $('codeOut').textContent = hostCode;
+    hostMsg('Connecting to network…', '');
+    hostPeer = new Peer(PREFIX + hostCode, ICE);
+    hostPeer.on('open', () => {
+      try { window.beam.copy(hostCode); } catch(_){}
+      hostMsg('Code copied. Waiting for your friend…', 'ok');
+    });
+    hostPeer.on('connection', conn => {
+      conn.on('open', () => {
+        const call = hostPeer.call(conn.peer, hostStream);
+        calls.add(call); updateCount();
+        const drop = () => { calls.delete(call); updateCount(); };
+        call.on('close', drop); call.on('error', drop);
+        conn.on('close', () => { try { call.close(); } catch(_){} drop(); });
+      });
+    });
+    hostPeer.on('error', err => {
+      if (err.type === 'unavailable-id' && attempt < 5) { hostPeer.destroy(); openHostPeer(attempt+1); return; }
+      hostMsg('Connection problem: ' + err.type, 'bad');
+    });
+    hostPeer.on('disconnected', () => { try { hostPeer.reconnect(); } catch(_){} });
+  }
+
+  function updateCount() {
+    const n = calls.size;
+    hostMsg(n ? `${n} viewer${n>1?'s':''} watching` : 'Waiting for your friend…', 'ok');
+  }
+
+  function stopSharing() {
+    calls.forEach(c => { try { c.close(); } catch(_){} }); calls.clear();
+    if (hostPeer) { hostPeer.destroy(); hostPeer = null; }
+    if (hostStream) { hostStream.getTracks().forEach(t => t.stop()); hostStream = null; }
+    $('shareLive').classList.add('hidden');
+    $('shareIdle').classList.remove('hidden');
+    hostMsg('Ready', '');
+  }
+
+  /* ----- viewer ----- */
+  function join(codeRaw) {
+    const code = (codeRaw || '').trim().toUpperCase();
+    if (code.length !== 6) { joinMsg('Enter the 6-character code', 'bad'); return; }
+    leave(true);
+    joinMsg('Connecting…', ''); $('joinBtn').disabled = true;
+    viewPeer = new Peer(ICE);
+    const timeout = setTimeout(() => fail('No response. Check the code, or the host may have stopped.'), 15000);
+    viewPeer.on('open', () => {
+      viewConn = viewPeer.connect(PREFIX + code, { reliable: true });
+      viewConn.on('close', () => { if (viewPeer) fail('Host ended the session.'); });
+    });
+    viewPeer.on('call', call => {
+      clearTimeout(timeout);
+      viewCall = call; call.answer();
+      call.on('stream', showStream);
+      call.on('close', () => fail('Host ended the session.'));
+    });
+    viewPeer.on('error', err => {
+      clearTimeout(timeout);
+      fail(err.type === 'peer-unavailable' ? 'Code not found. Is the host still sharing?' : 'Connection problem: ' + err.type);
+    });
+  }
+
+  function showStream(stream) {
+    const v = $('remote');
+    v.srcObject = stream;
+    $('viewer').classList.remove('hidden');
+    $('viewStatus').textContent = 'Connected';
+    $('joinBtn').disabled = false;
+    joinMsg('Connected', 'ok');
+    v.muted = false;
+    const p = v.play();
+    if (p) p.catch(() => { v.muted = true; $('unmuteBtn').textContent = 'Unmute'; });
+    $('unmuteBtn').textContent = v.muted ? 'Unmute' : 'Mute';
+  }
+
+  function fail(msg) { leave(true); joinMsg(msg, 'bad'); }
+
+  function leave(silent) {
+    if (viewCall) { try { viewCall.close(); } catch(_){} viewCall = null; }
+    if (viewConn) { try { viewConn.close(); } catch(_){} viewConn = null; }
+    if (viewPeer) { const p = viewPeer; viewPeer = null; try { p.destroy(); } catch(_){} }
+    $('remote').srcObject = null;
+    $('viewer').classList.add('hidden');
+    $('joinBtn').disabled = false;
+    if (document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+    if (!silent) joinMsg('Not connected', '');
+  }
+
+  /* ----- wiring ----- */
+  $('startBtn').onclick = startSharing;
+  $('stopBtn').onclick = stopSharing;
+  $('copyCode').onclick = () => { window.beam.copy(hostCode); $('copyCode').textContent = 'Copied!'; setTimeout(() => $('copyCode').textContent = 'Copy code', 1200); };
+  $('joinBtn').onclick = () => join($('joinCode').value);
+  $('joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') join($('joinCode').value); });
+  $('leaveBtn').onclick = () => leave(false);
+  $('unmuteBtn').onclick = () => { const v = $('remote'); v.muted = !v.muted; $('unmuteBtn').textContent = v.muted ? 'Unmute' : 'Mute'; v.play().catch(()=>{}); };
+  $('fsBtn').onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else $('viewer').requestFullscreen().catch(()=>{}); };
+  window.addEventListener('error', e => hostMsg('Error: ' + e.message, 'bad'));
+})();
+</script>
+</body>
+</html>

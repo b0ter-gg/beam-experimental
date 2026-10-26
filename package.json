@@ -1,0 +1,35 @@
+{
+  "name": "beam",
+  "version": "1.0.0",
+  "description": "Simple screen sharing, no login",
+  "main": "main.js",
+  "author": "Beam",
+  "build": {
+    "appId": "app.beam.screenshare",
+    "productName": "Beam",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "peerjs.min.js"
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "Beam.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --x64"
+  }
+}
